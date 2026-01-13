@@ -86,3 +86,23 @@ lint-results*.xml
 # Android Profiling
 *.hprof
 
+# ===== Additional Build Artifacts =====
+**/build/
+
+# ===== Additional Secrets =====
+README_API_KEYS.md
+
+# ===== Additional Logs & Temp Files =====
+*_log.txt
+build_error.txt
+temp_build_log.txt
+temp_kotlin_error.txt
+output.txt
+
+# ===== Vosk Models (NOT USED) =====
+vosk-model-*/
+
+# ===== Artifact Files (Agent-generated) =====
+walkthrough.md
+implementation_plan.md
+task.md
