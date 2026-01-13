@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <domain includeSubdomains="true">example.com</domain>
+    </cloud-backup>
+</data-extraction-rules>
+

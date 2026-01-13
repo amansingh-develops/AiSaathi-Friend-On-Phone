@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Assistant</string>
+    <string name="accessibility_service_description">Automatically clicks the first song in Spotify search results to enable hands-free music playback.</string>
+    <string name="media_control_service_description">Allows the assistant to control media playback (play, pause, next, previous) for apps like Spotify and YouTube.</string>
+</resources>
+
+
+
