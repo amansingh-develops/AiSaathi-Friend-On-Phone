@@ -38,7 +38,8 @@ class TextToSpeechManager(
 
     private val appContext: Context = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val audioFocusManager = com.assistant.services.audio.AudioFocusManager(context)
+    // NOTE: Audio focus is managed by the caller (ListeningSessionManager)
+    // to avoid multiple competing focus requests.
 
     private val isInitStarted = AtomicBoolean(false)
     @Volatile private var isReady: Boolean = false
@@ -116,8 +117,7 @@ class TextToSpeechManager(
                 return@post
             }
 
-            // Request focus before speaking
-            audioFocusManager.requestOutputFocus()
+            // NOTE: Audio focus is managed externally by ListeningSessionManager
 
             applyPreferredVoiceIfNeeded()
             speakInternal(engine, text)
@@ -133,9 +133,8 @@ class TextToSpeechManager(
                 tts?.stop()
                 pendingUtterances.clear()
             } catch (_: Exception) {
-            } finally {
-                audioFocusManager.abandonOutputFocus()
             }
+            // NOTE: Audio focus is managed externally by ListeningSessionManager
         }
     }
 
@@ -150,7 +149,7 @@ class TextToSpeechManager(
             } catch (_: Exception) {
                 // Never crash on shutdown.
             } finally {
-                audioFocusManager.abandonOutputFocus()
+                // NOTE: Audio focus is managed externally
                 tts = null
                 isReady = false
             }
@@ -193,14 +192,14 @@ class TextToSpeechManager(
 
             override fun onDone(utteranceId: String?) {
                 mainHandler.post { 
-                    audioFocusManager.abandonOutputFocus()
+                    // NOTE: Audio focus is managed by ListeningSessionManager
                     listener?.onSpeechEnded()
                 }
             }
 
             override fun onError(utteranceId: String?) {
                 mainHandler.post { 
-                    audioFocusManager.abandonOutputFocus()
+                    // NOTE: Audio focus is managed by ListeningSessionManager
                     listener?.onSpeechEnded()
                 }
             }
@@ -263,7 +262,7 @@ class TextToSpeechManager(
             val next = pendingUtterances.removeFirst()
             // Ensure voice is still applied before each queued utterance.
             applyPreferredVoiceIfNeeded()
-            audioFocusManager.requestOutputFocus()
+            // NOTE: Audio focus is managed externally by ListeningSessionManager
             speakInternal(engine, next)
         }
     }
@@ -494,7 +493,7 @@ class TextToSpeechManager(
         } catch (e: Exception) {
             // Never crash on speak. If the engine dies, we'll just skip speaking.
             Log.w(TAG, "speak() failed; dropping utterance.", e)
-            audioFocusManager.abandonOutputFocus()
+            // NOTE: Audio focus is managed externally
         }
     }
 

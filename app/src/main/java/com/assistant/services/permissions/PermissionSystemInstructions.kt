@@ -17,6 +17,8 @@ object PermissionSystemInstructions {
             OnboardingLanguage.ENGLISH -> "Respond in English."
         }
         
+        val mirrorRule = "🔴 LANGUAGE MIRRORING: DETECT user's language/dialect from their request. MIRROR it exactly (Hindi, Hinglish, Punjabi, Telugu, etc). Script: Devanagari→Devanagari, Roman→Roman. Fallback: $languageGuidance"
+        
         // Build conversation context section if available
         val contextSection = if (!context.conversationContext.isNullOrBlank()) {
             """
@@ -41,7 +43,7 @@ Your task:
 2. Explain WHY you need this permission
 3. Explain WHAT you will do once permission is granted
 4. Keep it conversational and natural, NOT robotic
-5. $languageGuidance
+5. $mirrorRule
 6. Vary your wording naturally - don't use the same phrases every time
 7. If conversation context is provided, reference it naturally to show continuity
 
@@ -85,6 +87,8 @@ Remember: Be natural, friendly, and concise. Match the user's language and tone.
             OnboardingLanguage.ENGLISH -> "Respond in English."
         }
         
+        val mirrorRule = "🔴 LANGUAGE MIRRORING: DETECT user's language/dialect. MIRROR it exactly. Fallback: $languageGuidance"
+        
         return """
 You are a friendly, helpful voice assistant. The user asked: "${context.originalIntent}"
 
@@ -95,7 +99,7 @@ Your task:
 2. Don't make the user feel guilty
 3. Optionally suggest an alternative if one exists
 4. Keep it friendly and understanding
-5. $languageGuidance
+5. $mirrorRule
 
 Return ONLY valid JSON with this structure:
 {

@@ -3,6 +3,8 @@
     <string name="app_name">Assistant</string>
     <string name="accessibility_service_description">Automatically clicks the first song in Spotify search results to enable hands-free music playback.</string>
     <string name="media_control_service_description">Allows the assistant to control media playback (play, pause, next, previous) for apps like Spotify and YouTube.</string>
+    <string name="youtube_accessibility_service_description">Automatically clicks the first video/song in YouTube and YouTube Music search results to enable hands-free media playback.</string>
+    <string name="rapido_accessibility_description">Auto-books Rapido rides by controlling the Rapido app interface. Enable this to allow hands-free ride booking.</string>
 </resources>
 
 

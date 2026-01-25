@@ -145,10 +145,24 @@ class WakeWordService : Service() {
 
             // New dependencies
             val soundManager = SoundEffectManager(applicationContext)
-            val geminiClient = GeminiClient() 
             
-            // Initialize OpenRouter client for LLM fallback
-            val openRouterClient = com.assistant.services.openrouter.OpenRouterClient()
+            // PERFORMANCE OPTIMIZATION: Persistent client pool for connection reuse
+            val persistentClientPool = com.assistant.services.llm.PersistentLlmClientPool()
+            
+            // Create LLM clients
+            val geminiClient = GeminiClient()
+            
+            // Initialize OpenRouter client with shared client pool
+            val openRouterClient = com.assistant.services.openrouter.OpenRouterClient(
+                sharedClient = persistentClientPool.sharedClient
+            )
+            
+            // Create SmartRouter with all components (session-locked routing)
+            val smartRouter = com.assistant.services.llm.SmartModelRouter(
+                clientPool = persistentClientPool,
+                geminiClient = geminiClient,
+                openRouterClient = openRouterClient
+            )
             
             // Initialize UnifiedLLMClient with Gemini → OpenRouter fallback
             val unifiedLLMClient = com.assistant.services.llm.UnifiedLLMClient(
@@ -164,7 +178,7 @@ class WakeWordService : Service() {
                 context = applicationContext,
                 llmClient = unifiedLLMClient,
                 ttsManager = ttsManager
-            )
+            ).also { it.setSmartRouter(smartRouter) }  // Wire SmartRouter for session-locked routing
             
             // Initialize ExecutionGuard for permission-guarded action execution
             val executionGuard = com.assistant.services.actions.ExecutionGuard(
@@ -180,11 +194,16 @@ class WakeWordService : Service() {
             val stt = SpeechToTextManager(applicationContext)
             
             val interpreter = if (geminiClient.isConfigured()) {
-                com.assistant.services.intent.GeminiIntentInterpreter(geminiClient)
+                com.assistant.services.intent.GeminiIntentInterpreter(
+                    client = geminiClient,
+                    openRouterClient = openRouterClient,
+                    smartRouter = smartRouter  // Pass SmartModelRouter for session-locked routing
+                )
             } else {
                 LocalHeuristicIntentInterpreter()
             }
-            val geminiChat = GeminiChatResponder()
+            // Wire SmartModelRouter to chat responder for session-locked routing
+            val geminiChat = GeminiChatResponder().also { it.setSmartRouter(smartRouter) }
             val chat = if (geminiChat.isConfigured()) geminiChat else LocalFallbackChatResponder()
             
             // Create ActionExecutor with ExecutionGuard
@@ -195,7 +214,8 @@ class WakeWordService : Service() {
             
             val audioFocus = com.assistant.services.audio.AudioFocusManager(applicationContext)
             
-            val router = GeminiRouter(geminiClient)
+            // Wire SmartModelRouter to GeminiRouter for session-locked routing
+            val router = GeminiRouter(geminiClient).also { it.setSmartRouter(smartRouter) }
 
             val contactResolver = com.assistant.services.contacts.ContactResolver(this)
             val historyManager = com.assistant.services.history.ConversationHistoryManager(this)
@@ -217,7 +237,10 @@ class WakeWordService : Service() {
                     // Give microphone back to wake-word detection after the session ends.
                     resumeWakeWordListeningAfterSession()
                 }
-            )
+            ).also {
+                // Wire up the smart router for LLM performance optimization
+                it.setSmartRouter(smartRouter)
+            }
             assistantOrchestrator = AssistantOrchestrator(
                 acknowledgementManager = ack,
                 listeningSessionManager = session

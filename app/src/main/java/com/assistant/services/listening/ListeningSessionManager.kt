@@ -106,6 +106,9 @@ class ListeningSessionManager(
     // CONVERSATION CONTEXT
     @Volatile private var conversationContext: ConversationContext? = null
 
+    // SMART LLM ROUTER (Optional - for performance optimization)
+    private var smartRouter: com.assistant.services.llm.SmartModelRouter? = null
+
     // CONFIG
     @Volatile private var language: OnboardingLanguage = OnboardingLanguage.ENGLISH
     @Volatile private var voiceGender: VoiceGender = VoiceGender.NEUTRAL
@@ -144,6 +147,15 @@ class ListeningSessionManager(
         // Also update legacy fields if needed
         acknowledgementManager.setPreferredName(profile?.preferredName ?: profile?.userName)
     }
+    
+    /**
+     * Set the smart LLM router for performance optimization.
+     * Enables connection warm-up during STT and intelligent model selection.
+     */
+    fun setSmartRouter(router: com.assistant.services.llm.SmartModelRouter) {
+        this.smartRouter = router
+        Log.d(TAG, "SmartRouter configured for LLM optimization")
+    }
 
     fun onWake() {
         // NEW: Start a fresh session when wake word is detected
@@ -157,6 +169,9 @@ class ListeningSessionManager(
              
              // Start Vosk
              startListeningInternal(AssistantState.ACTIVE_LISTENING)
+             
+             // PERFORMANCE: Warm up ALL LLM connections while user speaks
+             smartRouter?.warmUpAllModels()
              
              // Start "Wake Word Only" Check
              startWakeOnlyTimer()
@@ -245,10 +260,21 @@ class ListeningSessionManager(
         // 1. Filter Noise
         if (cleaned.isBlank() || cleaned.length < 2) {
             Log.w(TAG, "Ignoring short/empty text")
-            // Don't play Sound 2. Just listen again.
-            // STT will continue listening (no need to restart, already listening)
-             return
+            return
         }
+
+        // ========== SOS INTERCEPTION (PRIORITY ZERO) ==========
+        // Check for SOS immediately to bypass all LLM/Thinking/Sound delays
+        val fastDecision = intentInterpreter.interpretFast(cleaned)
+        if (fastDecision?.intent is AssistantIntent.Action.TriggerSOS) {
+            Log.w(TAG, "🚨 SOS INTERCEPTED IN FINAL TEXT - EXECUTING IMMEDIATELY")
+            scope.launch(Dispatchers.IO) {
+                // Bypass sound effects and thinking states
+                executeDecision(fastDecision, cleaned, null)
+            }
+            return
+        }
+        // ======================================================
         
         // Play command captured sound for user feedback
         soundEffectManager.playCommandCaptured()
@@ -287,6 +313,50 @@ class ListeningSessionManager(
              // Force this as a Command routing
              handleDirectCommand(textToProcess) // Skip router, we know it's a command
              return
+        }
+        
+        // Handle CALL LOG CALLBACK CONFIRMATION
+        // When user says "Haan" after "Rahul ka missed call tha. Call back karoon?"
+        val pendingCallback = conversationContext?.pendingAction
+        if (pendingCallback?.collectedParams?.get("pending_callback") == "true") {
+            val contactName = pendingCallback.collectedParams["contact_name"] ?: ""
+            val phoneNumber = pendingCallback.collectedParams["phone_number"] ?: ""
+            
+            if (isPositiveConfirmation(text)) {
+                // User confirmed - execute callback
+                Log.i(TAG, "CALLBACK CONFIRMED: Calling $contactName ($phoneNumber)")
+                
+                listenAfterSpeaking.set(false)
+                voice.speak("Theek hai call krdeta hun $contactName ko")
+                
+                // Clear the pending context
+                conversationContext = null
+                
+                // Wait for TTS to complete
+                delay(2000)
+                
+                // Execute the call
+                val callIntent = AssistantIntent.Action.CallContact(
+                    contactName = phoneNumber,
+                    number = phoneNumber,
+                    acknowledgement = null
+                )
+                val result = actionExecutor.execute(callIntent, null)
+                handleActionResult(result)
+                return
+                
+            } else if (isNegativeConfirmation(text)) {
+                // User declined - clear context and end gracefully
+                Log.i(TAG, "CALLBACK DECLINED by user")
+                
+                listenAfterSpeaking.set(false)
+                voice.speak("Theek hai, koi baat nahi.")
+                
+                conversationContext = null
+                endSession("User declined callback")
+                return
+            }
+            // If neither positive nor negative, let it flow through to LLM for natural handling
         }
 
         // Get conversation history for CURRENT SESSION ONLY (prevents context confusion)
@@ -346,6 +416,13 @@ class ListeningSessionManager(
             Log.d(TAG, "No conversation context available")
         }
 
+        // CRITICAL: Re-request audio focus before LLM call
+        // This ensures clean audio state and prevents network blocking from audio contention
+        if (!audioFocusManager.hasFocus()) {
+            Log.d(TAG, "Re-requesting audio focus before LLM call...")
+            audioFocusManager.requestOutputFocus()
+        }
+
         // NEW: Use IntentInterpreter directly (Dual-Brain enabled) with full context
         // This consolidates routing and interpretation into one robust call.
         val rawDecision = intentInterpreter.interpretAccurate(textToProcess, contextSummary) ?: 
@@ -353,8 +430,18 @@ class ListeningSessionManager(
 
         // NEW: Refine confidence with Local Knowledge (Ground Truth)
         // This ensures "Call [Name]" works perfectly if name exists, or asks clarification if ambiguous.
+        // CRITICAL: Skip refinement for call_log queries - they should go directly to handleCallContactWithResolution
         val decision = if (rawDecision.intent is AssistantIntent.Action.CallContact) {
-            val contactName = rawDecision.intent.contactName
+            val callContactIntent = rawDecision.intent as AssistantIntent.Action.CallContact
+            
+            // CHECK: If this is a call_log request, skip refinement entirely
+            // Let handleCallContactWithResolution handle it directly
+            if (callContactIntent.number?.startsWith("call_log:") == true) {
+                Log.i(TAG, "CALL_LOG request detected (${callContactIntent.number}) - skipping contact refinement")
+                rawDecision  // Use raw decision as-is
+            } else {
+                // Normal contact call - proceed with refinement
+                val contactName = callContactIntent.contactName
             
             // Check if this is a clarification (user responded to "Which Harsh?" in SAME session)
             // Context is cleared after successful call, so pending context only exists during active clarification
@@ -383,7 +470,13 @@ class ListeningSessionManager(
                 contactResolver.resolveContact(contactName)
             }
             
-            Log.i(TAG, "Refining Call Decision for '$contactName': Status=${resolution.status}")
+            // Log the resolution status - use resolved contact name for EXACT_MATCH, original query otherwise
+            val logName = if (resolution.status == ContactResolver.ResolutionResult.Status.EXACT_MATCH) {
+                resolution.contacts.first().displayName
+            } else {
+                contactName
+            }
+            Log.i(TAG, "Refining Call Decision for '$logName': Status=${resolution.status}")
             
             when (resolution.status) {
                 ContactResolver.ResolutionResult.Status.EXACT_MATCH -> {
@@ -458,6 +551,7 @@ class ListeningSessionManager(
                 }
                 else -> rawDecision // Permission denied etc, handle normally
             }
+            }  // Close the else block for non-call_log contacts
         } else {
             rawDecision
         }
@@ -559,6 +653,49 @@ class ListeningSessionManager(
                         // Route to specialized handler
                         isConversationMode.set(false)
                         handleSetAlarmWithResolution(intent)
+                        return
+                    }
+                    is AssistantIntent.Action.OpenCamera -> {
+                        // Route to camera handler
+                        isConversationMode.set(false)
+                        listenAfterSpeaking.set(false)
+                        
+                        if (!intent.acknowledgement.isNullOrBlank()) {
+                            voice.speak(intent.acknowledgement!!)
+                        }
+                        
+                        val result = actionExecutor.execute(intent, contextSummary)
+                        handleActionResult(result)
+                        return
+                    }
+                    is AssistantIntent.Action.BookRapido -> {
+                        // Route to specialized Rapido booking handler
+                        Log.i(TAG, "BookRapido intent received: dest=${intent.destination}, vehicle=${intent.vehicle}")
+                        isConversationMode.set(false)
+                        handleRapidoBookingWithClarification(intent)
+                        return
+                    }
+                    is AssistantIntent.Action.SearchAmazon -> {
+                        // Route to Amazon search handler
+                        Log.i(TAG, "SearchAmazon intent received: query=${intent.query}")
+                        isConversationMode.set(false)
+                        handleAmazonSearchWithClarification(intent)
+                        return
+                    }
+                    is AssistantIntent.Action.TriggerSOS -> {
+                        // EMERGENCY: ZERO DELAY
+                        Log.w(TAG, "🚨 EXECUTING SOS EMERGENCY FLOW")
+                        isConversationMode.set(false)
+                        listenAfterSpeaking.set(false)
+                        
+                        // 1. Speak calming message (Non-blocking)
+                        voice.speak(intent.acknowledgement ?: "Emergency help bhej raha hoon.")
+                        
+                        // 2. Dial IMMEDIATELY (Don't wait for TTS)
+                        scope.launch(Dispatchers.Main) {
+                            val result = actionExecutor.execute(intent, contextSummary)
+                            handleActionResult(result)
+                        }
                         return
                     }
                     else -> {
@@ -752,47 +889,80 @@ class ListeningSessionManager(
             if (callInfo != null) {
                 // Found call log entry
                 val displayName = callInfo.contactName ?: callInfo.phoneNumber
+                val callTypeDesc = when (callLogType) {
+                    "last_outgoing" -> "last call"
+                    "last_missed" -> "missed call"
+                    "last_incoming" -> "last incoming call"
+                    else -> "call"
+                }
                 
                 if (callLogAction == "info") {
-                    // INFO MODE: Ask LLM to generate response using found call log info
+                    // INFO MODE: Tell who called, then ask if they want to call back
+                    // NO LLM intermediate step - directly execute and inform
                     listenAfterSpeaking.set(true) // Keep session open for confirmation
                     
-                    scope.launch {
-                        val systemPrompt = """
-                            [System Context: Found recent call from $displayName. User asked: '${intent.contactName}']
-                            
-                            Generate a natural response that:
-                            1. Tells the user who called (use the name: $displayName)
-                            2. Asks if they want to call them back
-                            
-                            Example: "Last missed call $displayName ka tha. Unhe call karoon?"
-                            Or: "$displayName ne call kiya tha. Wapas call lagaoon?"
-                            
-                            Keep it conversational and friendly.
-                        """.trimIndent()
-                        val llmResponse = chatResponder.respond(systemPrompt)
-                        
-                        voice.speak(llmResponse)
-                        
-                        historyManager.addEntry(
-                            sessionId = currentSessionId,
-                            userInput = "[System: Found Call Log for $displayName]", 
-                            aiResponse = llmResponse,
-                            actionType = "CALL_LOG_INFO"
-                        )
+                    // Generate a natural response directly (faster than LLM)
+                    val infoResponse = when (callLogType) {
+                        "last_missed" -> "$displayName ka missed call tha. Call back karoon?"
+                        "last_incoming" -> "$displayName ne call kiya tha. Wapas call lagaoon?"
+                        "last_outgoing" -> "Last $displayName ko call kiya tha. Phir se call karoon?"
+                        else -> "$displayName ka call tha. Call back karoon?"
                     }
-                    // Do NOT execute call yet - wait for user response ("Yes" -> CALL_CONTACT)
+                    
+                    voice.speak(infoResponse)
+                    
+                    // Store pending callback context - when user says "Haan", execute call
+                    conversationContext = ConversationContext(
+                        pendingAction = ConversationContext.PendingAction(
+                            actionType = ConversationContext.ActionType.CALL_CONTACT,
+                            collectedParams = mutableMapOf(
+                                "contact_name" to displayName,
+                                "phone_number" to callInfo.phoneNumber,
+                                "pending_callback" to "true"  // Special flag for callback confirmation
+                            ),
+                            missingParams = listOf("confirmation")
+                        )
+                    )
+                    
+                    // Log for debugging
+                    Log.i(TAG, "INFO MODE: Stored pending callback for $displayName (${callInfo.phoneNumber})")
+                    
+                    historyManager.addEntry(
+                        sessionId = currentSessionId,
+                        userInput = "[Query: $callTypeDesc]", 
+                        aiResponse = infoResponse,
+                        actionType = "CALL_LOG_INFO"
+                    )
+                    // Session stays open - user will respond with "Haan" or "Nahi"
+                    
                 } else {
-                    // CALL MODE: Execute call immediately
+                    // CALL MODE: Acknowledge FIRST, then execute
                     listenAfterSpeaking.set(false)
-                    voice.speak(intent.acknowledgement ?: "Calling $displayName...")
+                    
+                    // Speak acknowledgement with contact name
+                    val acknowledgement = intent.acknowledgement?.takeIf { it.isNotBlank() }
+                        ?: "Haan call back krdeta hun $displayName ko"
+                    
+                    voice.speak(acknowledgement)
+                    
+                    // Log the action
+                    Log.i(TAG, "CALL MODE: Calling $displayName (${callInfo.phoneNumber})")
+                    
+                    historyManager.addEntry(
+                        sessionId = currentSessionId,
+                        userInput = "[Callback: $displayName]",
+                        aiResponse = acknowledgement,
+                        actionType = "CALL_LOG_CALLBACK"
+                    )
+                    
+                    // Wait for TTS to finish before executing call
+                    delay(2000) // Allow TTS to complete so user hears acknowledgement
                     
                     val callIntent = AssistantIntent.Action.CallContact(
                         contactName = callInfo.phoneNumber,
                         number = callInfo.phoneNumber,
                         acknowledgement = null
                     )
-                    delay(1500) // Allow TTS to start before Dialer takes focus
                     val result = actionExecutor.execute(callIntent, null)
                     handleActionResult(result)
                 }
@@ -800,9 +970,16 @@ class ListeningSessionManager(
             } else {
                 // No call log entry found
                 listenAfterSpeaking.set(false)
-                voice.speak("Sorry, I couldn't find that call in your history.")
+                val noCallResponse = when (callLogType) {
+                    "last_missed" -> "Koi missed call nahi mili history mein."
+                    "last_incoming" -> "Koi incoming call nahi mili recently."
+                    "last_outgoing" -> "Koi outgoing call nahi mili recently."
+                    else -> "Sorry, call history mein kuch nahi mila."
+                }
+                voice.speak(noCallResponse)
                 endSession("No call log found")
             }
+            return  // CRITICAL: Return after handling call_log query
         }
         
         // Resolve contact using ContactResolver (ONLY source of truth for phone numbers)
@@ -830,7 +1007,17 @@ class ListeningSessionManager(
                 } else {
                     // Valid number - Execute
                     listenAfterSpeaking.set(false)
-                    voice.speak(intent.acknowledgement ?: "Calling ${contact.displayName}...")
+                    
+                    // CRITICAL: Use LLM acknowledgement if available, UNLESS we're in a clarification scenario
+                    // where the acknowledgement may reference a stale candidate contact
+                    val acknowledgement = if (conversationContext?.pendingAction != null) {
+                        // Clarification scenario - rebuild acknowledgement with resolved contact
+                        "Calling ${contact.displayName}..."
+                    } else {
+                        // Simple scenario - trust LLM's acknowledgement
+                        intent.acknowledgement ?: "Calling ${contact.displayName}..."
+                    }
+                    voice.speak(acknowledgement)
                     
                     // Create CallContact with resolved phone number
                     val callIntent = AssistantIntent.Action.CallContact(
@@ -843,7 +1030,9 @@ class ListeningSessionManager(
                     // Next CALL_CONTACT request will start fresh
                     conversationContext = null
                     
-                    delay(1500) // Allow TTS to start before Dialer takes focus
+                    // CRITICAL: Delay execution to ensure TTS completes and user hears acknowledgement
+                    // This prevents dialer from stealing audio focus during TTS playback
+                    delay(5000) // Increased from 1500ms to ensure TTS completes
                     val result = actionExecutor.execute(callIntent, null)
                     handleActionResult(result)
                 }
@@ -998,6 +1187,139 @@ class ListeningSessionManager(
         listenAfterSpeaking.set(false)
         voice.speak(intent.acknowledgement ?: "Setting alarm for $time...")
         val result = actionExecutor.execute(intent, null)  // No context needed for direct execution
+        handleActionResult(result)
+    }
+
+    // RAPIDO AUTOMATION MANAGER: Handles multi-turn clarification for ride booking
+    private val rapidoAutomationManager = com.assistant.services.rapido.RapidoAutomationManager()
+    
+    /**
+     * Handle BookRapido action with intelligent multi-turn clarification.
+     * 
+     * This method implements the state machine for Rapido booking:
+     * - Checks if destination/vehicle need clarification
+     * - Asks clarification questions and keeps session alive
+     * - Executes automation only when all params are resolved
+     */
+    private suspend fun handleRapidoBookingWithClarification(intent: AssistantIntent.Action.BookRapido) {
+        Log.i(TAG, "╔════════════════════════════════════════════════════════╗")
+        Log.i(TAG, "║  🚗 HANDLING RAPIDO BOOKING                            ║")
+        Log.i(TAG, "║  Destination: ${intent.destination ?: "NOT PROVIDED"}")
+        Log.i(TAG, "║  Vehicle: ${intent.vehicle ?: "NOT PROVIDED"}")
+        Log.i(TAG, "╚════════════════════════════════════════════════════════╝")
+        
+        // Check if this is a clarification response
+        val currentState = rapidoAutomationManager.getCurrentState()
+        
+        val clarificationResult = if (currentState != com.assistant.services.rapido.RapidoAutomationState.IDLE) {
+            // Mid-clarification flow - process as response
+            Log.d(TAG, "Processing as clarification response (current state: $currentState)")
+            // Use the acknowledgement as user response since it might contain their answer
+            val userResponse = intent.acknowledgement ?: intent.destination ?: ""
+            rapidoAutomationManager.processUserResponse(userResponse)
+        } else {
+            // New booking request - start fresh
+            Log.d(TAG, "Starting new Rapido booking flow")
+            rapidoAutomationManager.startBooking(intent.destination, intent.vehicle)
+        }
+        
+        // Handle the clarification result
+        when (clarificationResult) {
+            is com.assistant.services.rapido.RapidoAutomationManager.ClarificationResult.NeedsClarification -> {
+                // Need more info - ask question and keep session alive
+                Log.i(TAG, "Clarification needed: ${clarificationResult.question}")
+                
+                // Speak the clarification question (in user's language - LLM has already adjusted)
+                listenAfterSpeaking.set(true)
+                voice.setVoiceGender(voiceGender)
+                voice.speak(clarificationResult.question)
+                state = AssistantState.SPEAKING
+                
+                // Store context for next turn
+                // When user responds, onFinalText will be called, processUserRequest runs,
+                // and if it's interpreted as BookRapido again (or Clarify), we'll route back here
+            }
+            
+            is com.assistant.services.rapido.RapidoAutomationManager.ClarificationResult.Ready -> {
+                // All params resolved - execute automation!
+                val context = clarificationResult.context
+                Log.i(TAG, "╔════════════════════════════════════════════════════════╗")
+                Log.i(TAG, "║  ✅ RAPIDO BOOKING READY TO EXECUTE                    ║")
+                Log.i(TAG, "║  Final Destination: ${context.getFinalDestination()}")
+                Log.i(TAG, "║  Vehicle: ${context.vehicle}")
+                Log.i(TAG, "╚════════════════════════════════════════════════════════╝")
+                
+                // Speak acknowledgement before executing
+                val ack = intent.acknowledgement ?: "Theek hai, Rapido se ${context.vehicle ?: "bike"} book karta hoon ${context.getFinalDestination()} ke liye."
+                listenAfterSpeaking.set(false)
+                voice.setVoiceGender(voiceGender)
+                voice.speak(ack)
+                
+                // Wait a bit for TTS, then execute
+                delay(1500)
+                
+                // Create final BookRapido intent with resolved params
+                val resolvedIntent = AssistantIntent.Action.BookRapido(
+                    destination = context.getFinalDestination(),
+                    vehicle = context.vehicle,
+                    isSavedPlace = context.isSavedPlace,
+                    acknowledgement = null  // Already spoken
+                )
+                
+                // Execute via ActionExecutor (will launch Rapido and trigger accessibility automation)
+                val result = actionExecutor.execute(resolvedIntent, null)
+                handleActionResult(result)
+                
+                // Reset the state machine
+                rapidoAutomationManager.reset()
+            }
+        }
+    }
+
+    /**
+     * Handle SearchAmazon action with intelligent clarification.
+     * 
+     * If query is missing/vague, asks the user what to search.
+     * If query is present, executes Amazon search immediately.
+     */
+    private suspend fun handleAmazonSearchWithClarification(intent: AssistantIntent.Action.SearchAmazon) {
+        val query = intent.query
+        
+        if (query.isNullOrBlank()) {
+            // Query missing - ask for clarification
+            Log.i(TAG, "Amazon search query missing, asking for clarification")
+            listenAfterSpeaking.set(true)
+            
+            val clarificationQuestion = intent.acknowledgement?.takeIf { it.isNotBlank() }
+                ?: "Amazon pe kya dhundhna hai yaar?"
+            
+            voice.speak(clarificationQuestion)
+            
+            // Store pending context for follow-up
+            conversationContext = ConversationContext(
+                pendingAction = ConversationContext.PendingAction(
+                    actionType = ConversationContext.ActionType.CALL_CONTACT, // Reusing for simplicity
+                    missingParams = listOf("amazon_query"),
+                    collectedParams = mutableMapOf("action_type" to "SEARCH_AMAZON")
+                )
+            )
+            return
+        }
+        
+        // Query present - execute search
+        Log.i(TAG, "Amazon search executing: query='$query'")
+        listenAfterSpeaking.set(false)
+        
+        // Speak acknowledgement BEFORE launching
+        val ack = intent.acknowledgement?.takeIf { it.isNotBlank() }
+            ?: "Theek hai, Amazon pe $query dhundh rahi hoon!"
+        voice.speak(ack)
+        
+        // Small delay to let TTS start
+        delay(500)
+        
+        // Execute via ActionExecutor
+        val result = actionExecutor.execute(intent, null)
         handleActionResult(result)
     }
 
@@ -1166,7 +1488,18 @@ class ListeningSessionManager(
     
     private fun isPositiveConfirmation(text: String): Boolean {
         val lower = text.lowercase()
-        return lower.contains("yes") || lower.contains("haan") || lower.contains("sure") || lower.contains("do it") || lower.contains("baja do")
+        return lower.contains("yes") || lower.contains("haan") || lower.contains("sure") || 
+               lower.contains("do it") || lower.contains("baja do") || lower.contains("kr do") ||
+               lower.contains("kardo") || lower.contains("kar do") || lower.contains("laga do") ||
+               lower.contains("theek hai") || lower.contains("ok") || lower.contains("ji")
+    }
+    
+    private fun isNegativeConfirmation(text: String): Boolean {
+        val lower = text.lowercase()
+        return lower.contains("no") || lower.contains("nahi") || lower.contains("mat") ||
+               lower.contains("rehne do") || lower.contains("cancel") || lower.contains("ruko") ||
+               lower.contains("nope") || lower.contains("na") || lower.contains("chhod do") ||
+               lower == "nhi"
     }
     
     private fun mapSuggestionToIntent(suggestion: String): String {

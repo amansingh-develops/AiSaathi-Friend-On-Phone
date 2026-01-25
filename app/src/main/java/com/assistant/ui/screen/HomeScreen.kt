@@ -59,16 +59,21 @@ package com.assistant.ui.screen
      val isWakeWordDetected by viewModel.isWakeWordDetected.collectAsState()
      
      // Animate AI Orb pulse
+    // Animate AI Orb pulse - ONLY when wake word is detected to save battery and reduce logs
      val infiniteTransition = rememberInfiniteTransition(label = "orb_pulse")
-     val pulseScale by infiniteTransition.animateFloat(
-         initialValue = 1.0f,
-         targetValue = if (isWakeWordDetected) 1.2f else 1.05f,
-         animationSpec = infiniteRepeatable(
-             animation = tween(if (isWakeWordDetected) 400 else 2000, easing = FastOutSlowInEasing),
-             repeatMode = RepeatMode.Reverse
-         ),
-         label = "pulse_scale"
-     )
+     val pulseScale by if (isWakeWordDetected) {
+         infiniteTransition.animateFloat(
+             initialValue = 1.0f,
+             targetValue = 1.2f,
+             animationSpec = infiniteRepeatable(
+                 animation = tween(400, easing = FastOutSlowInEasing),
+                 repeatMode = RepeatMode.Reverse
+             ),
+             label = "pulse_scale"
+         )
+     } else {
+         remember { mutableStateOf(1.0f) }
+     }
  
      // Soft press feedback for the settings icon
      val settingsPressed = remember { MutableInteractionSource() }

@@ -3,6 +3,7 @@ package com.assistant.services.router
 import com.assistant.services.gemini.GeminiClient
 import com.assistant.services.intent.IntentDecision
 import com.assistant.services.intent.AssistantIntent
+import com.assistant.services.llm.SmartModelRouter
 import org.json.JSONObject
 import android.util.Log
 
@@ -11,9 +12,12 @@ import android.util.Log
  * 1. COMMAND (Direct execution)
  * 2. CONVERSATION (ElevenLabs Agent)
  * 3. CONVERSATION_WITH_ACTION (Agent + potential action)
+ * 
+ * Uses SmartModelRouter for session-locked routing when available.
  */
 class GeminiRouter(
-    private val geminiClient: GeminiClient
+    private val geminiClient: GeminiClient,
+    private var smartRouter: SmartModelRouter? = null
 ) {
     companion object {
         private const val TAG = "GeminiRouter"
@@ -24,9 +28,13 @@ class GeminiRouter(
         object Conversation : Route()
         data class ConversationWithAction(val suggestion: String) : Route()
     }
+    
+    fun setSmartRouter(router: SmartModelRouter?) {
+        this.smartRouter = router
+    }
 
     /**
-     * Asks Gemini to classify the text.
+     * Asks LLM to classify the text.
      *
      * Optimization:
      * - Uses a compact prompt to reduce input tokens.
@@ -68,8 +76,17 @@ class GeminiRouter(
         }
         
         val systemInstruction = "You are a low-latency router. Output only valid JSON."
-        val response = geminiClient.generateReply(systemInstruction, prompt) ?: return Route.Conversation
-
+        
+        // Use SmartModelRouter if available (session-locked routing)
+        val response = smartRouter?.let { router ->
+            Log.d(TAG, "Using SmartModelRouter for routing")
+            router.generateSmart(systemInstruction, prompt)
+        } ?: run {
+            Log.d(TAG, "Using GeminiClient directly (fallback)")
+            geminiClient.generateReply(systemInstruction, prompt)
+        }
+        
+        if (response == null) return Route.Conversation
 
         return try {
             val json = JSONObject(cleanJson(response))
@@ -97,3 +114,4 @@ class GeminiRouter(
         return text.replace("```json", "").replace("```", "").trim()
     }
 }
+

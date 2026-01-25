@@ -24,7 +24,7 @@ class UnifiedLLMClient(
      * Generate a reply with automatic fallback.
      * Tries Gemini first, falls back to OpenRouter on failure.
      */
-    fun generateReply(systemInstruction: String, userText: String): String? {
+    suspend fun generateReply(systemInstruction: String, userText: String): String? {
         // Try Gemini first
         if (geminiClient.isConfigured()) {
             try {
@@ -59,7 +59,7 @@ class UnifiedLLMClient(
      * Generate chat response with full history and tool support.
      * Only supported by Gemini (OpenRouter fallback doesn't support tools).
      */
-    fun generateChatResponse(
+    suspend fun generateChatResponse(
         history: List<Content>,
         tools: List<Tool>? = null,
         systemInstruction: String? = null

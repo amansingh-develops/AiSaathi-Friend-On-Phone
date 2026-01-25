@@ -13,37 +13,48 @@ object FeatureCapabilityMap {
      */
     fun getRequiredPermissions(intent: AssistantIntent): List<PermissionType> {
         return when (intent) {
-            is AssistantIntent.Action.CallContact -> listOf(
-                PermissionType.CALL_PHONE,
-                PermissionType.READ_CONTACTS
-            )
-            
-            is AssistantIntent.Action.PlayMedia -> {
-                // Media playback requires audio settings and notification listener for real control
-                listOf(
+            // 1. Casual Chat / System States (No permissions)
+            is AssistantIntent.Chat,
+            is AssistantIntent.Clarify,
+            is AssistantIntent.Unknown -> emptyList()
+
+            // 2. Actions (Permission Guarded)
+            is AssistantIntent.Action -> when (intent) {
+                is AssistantIntent.Action.CallContact -> listOf(
+                    PermissionType.CALL_PHONE,
+                    PermissionType.READ_CONTACTS
+                )
+                
+                is AssistantIntent.Action.PlayMedia -> listOf(
                     PermissionType.MODIFY_AUDIO_SETTINGS,
                     PermissionType.NOTIFICATION_LISTENER
                 )
-            }
-            
-            is AssistantIntent.Action.SetAlarm -> listOf(
-                PermissionType.WRITE_CALENDAR
-            )
-            
-            is AssistantIntent.Action.UpdateSetting -> {
-                // Settings changes may require audio permissions
-                when (intent.settingType.lowercase()) {
-                    "volume", "audio" -> listOf(PermissionType.MODIFY_AUDIO_SETTINGS)
-                    else -> emptyList()
+                
+                is AssistantIntent.Action.SetAlarm -> listOf(
+                    PermissionType.WRITE_CALENDAR
+                )
+                
+                is AssistantIntent.Action.UpdateSetting -> {
+                    when (intent.settingType.lowercase()) {
+                        "volume", "audio" -> listOf(PermissionType.MODIFY_AUDIO_SETTINGS)
+                        else -> emptyList()
+                    }
                 }
+
+                is AssistantIntent.Action.OpenCamera -> listOf(
+                    PermissionType.CAMERA
+                )
+
+                is AssistantIntent.Action.TriggerSOS -> listOf(
+                    PermissionType.CALL_PHONE
+                )
+                
+                // Pure automation/system actions (No special Android permissions)
+                is AssistantIntent.Action.StopListeningSession,
+                is AssistantIntent.Action.OpenSettings,
+                is AssistantIntent.Action.BookRapido,
+                is AssistantIntent.Action.SearchAmazon -> emptyList()
             }
-            
-            // Chat and clarification don't require special permissions
-            is AssistantIntent.Chat,
-            is AssistantIntent.Clarify,
-            is AssistantIntent.Unknown,
-            is AssistantIntent.Action.StopListeningSession,
-            is AssistantIntent.Action.OpenSettings -> emptyList()
         }
     }
     

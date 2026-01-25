@@ -19,6 +19,40 @@ class LocalHeuristicIntentInterpreter : IntentInterpreter {
         val t = normalize(text)
         if (t.isBlank()) return null
 
+        // ========== SOS DETECTION (HIGHEST PRIORITY - WORKS OFFLINE) ==========
+        // Check BEFORE call intent to ensure "call police" triggers SOS, not contact search
+        val sosKeywords = listOf(
+            // English
+            "help", "help me", "emergency", "sos", "save me", "i'm in danger", "im in danger",
+            "call police", "call 911", "call 112", "call ambulance", "need help",
+            // Hindi
+            "bachao", "madad", "madad karo", "police bulao", "khatra", "khatara",
+            "mujhe bachao", "doctor bulao", "ambulance bulao", "jaan bachao",
+            // Hinglish
+            "help karo", "police ko call karo", "emergency hai", "danger hai"
+        )
+
+        for (keyword in sosKeywords) {
+            if (t.contains(keyword)) {
+                val emergencyType = when {
+                    t.contains("police") || t.contains("911") || t.contains("112") -> "police"
+                    t.contains("ambulance") || t.contains("doctor") -> "ambulance"
+                    t.contains("fire") || t.contains("aag") -> "fire"
+                    else -> "general"
+                }
+                return IntentDecision(
+                    intent = AssistantIntent.Action.TriggerSOS(
+                        reason = text,
+                        emergencyType = emergencyType,
+                        acknowledgement = "Shant raho, main abhi emergency services ko call kar raha hoon."
+                    ),
+                    confidence = 0.99f,  // Very high - safety critical
+                    intentType = DIRECT
+                )
+            }
+        }
+        // ========== END SOS DETECTION ==========
+
         // Stop session (explicit).
         if (t.contains("stop listening") || t.contains("stop") || t.contains("band") || t.contains("bas")) {
             return IntentDecision(

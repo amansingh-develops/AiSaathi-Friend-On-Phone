@@ -5,6 +5,7 @@ import android.content.Intent
 import android.provider.Settings
 import android.util.Log
 import com.assistant.services.llm.UnifiedLLMClient
+import com.assistant.services.llm.SmartModelRouter
 import com.assistant.services.tts.TextToSpeechManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,7 +16,7 @@ import org.json.JSONObject
  * 
  * Flow:
  * 1. Receive PermissionRequestContext
- * 2. Generate explanation via LLM (Gemini with OpenRouter fallback)
+ * 2. Generate explanation via LLM (uses SmartModelRouter for session-locked routing)
  * 3. Speak explanation via TTS
  * 4. Show Android permission dialog (or redirect to Settings for special permissions)
  * 5. Handle grant/deny callbacks
@@ -23,10 +24,15 @@ import org.json.JSONObject
 class PermissionNegotiator(
     private val context: Context,
     private val llmClient: UnifiedLLMClient,
-    private val ttsManager: TextToSpeechManager
+    private val ttsManager: TextToSpeechManager,
+    private var smartRouter: SmartModelRouter? = null
 ) {
     companion object {
         private const val TAG = "PermissionNegotiator"
+    }
+    
+    fun setSmartRouter(router: SmartModelRouter?) {
+        this.smartRouter = router
     }
     
     /**
@@ -43,9 +49,12 @@ class PermissionNegotiator(
         onReadyToRequestPermission: () -> Unit
     ): PermissionRequestResponse? = withContext(Dispatchers.IO) {
         try {
-            // Generate explanation via LLM
+            // Generate explanation via LLM (use SmartModelRouter if available)
             val systemInstruction = PermissionSystemInstructions.getPermissionRequestInstruction(requestContext)
-            val llmResponse = llmClient.generateReply(systemInstruction, requestContext.userIntent)
+            val llmResponse = smartRouter?.let { router ->
+                Log.d(TAG, "Using SmartModelRouter for permission request")
+                router.generateSmart(systemInstruction, requestContext.userIntent)
+            } ?: llmClient.generateReply(systemInstruction, requestContext.userIntent)
             
             if (llmResponse == null) {
                 Log.e(TAG, "LLM failed to generate permission explanation")
@@ -95,7 +104,10 @@ class PermissionNegotiator(
     ): PermissionDenialResponse? = withContext(Dispatchers.IO) {
         try {
             val systemInstruction = PermissionSystemInstructions.getPermissionDenialInstruction(denialContext)
-            val llmResponse = llmClient.generateReply(systemInstruction, denialContext.originalIntent)
+            val llmResponse = smartRouter?.let { router ->
+                Log.d(TAG, "Using SmartModelRouter for denial response")
+                router.generateSmart(systemInstruction, denialContext.originalIntent)
+            } ?: llmClient.generateReply(systemInstruction, denialContext.originalIntent)
             
             if (llmResponse == null) {
                 Log.e(TAG, "LLM failed to generate denial response")
