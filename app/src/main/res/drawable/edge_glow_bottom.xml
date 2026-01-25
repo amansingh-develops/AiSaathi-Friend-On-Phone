@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Premium bottom edge glow - vibrant multi-layer gradient -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Primary gradient -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="90"
+                android:startColor="#DD00C6FF"
+                android:centerColor="#6600D4FF"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+    <!-- Secondary accent for depth -->
+    <item android:bottom="0dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="90"
+                android:startColor="#889D50BB"
+                android:centerColor="#4400C6FF"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+</layer-list>

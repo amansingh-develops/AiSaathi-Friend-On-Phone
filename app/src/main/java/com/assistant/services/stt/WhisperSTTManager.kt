@@ -238,6 +238,10 @@ class WhisperSTTManager(
                 // Buffer audio
                 pcm.write(readBuffer, 0, n)
 
+                // Emit normalized audio level for visual feedback (0.0 to 1.0)
+                val normalizedLevel = (rms / 1000.0).coerceIn(0.0, 1.0).toFloat()
+                mainHandler.post { listener?.onAudioLevel(normalizedLevel) }
+
                 if (rms >= activeThreshold * 0.5) {
                     lastNonSilent = now
                 }

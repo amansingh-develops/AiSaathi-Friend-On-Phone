@@ -43,6 +43,7 @@ class YouTubeAutoClickService : AccessibilityService() {
     private var taskCompleted = false
     private var hasScheduledClick = false
     private var eventCount = 0
+    private var lastSelection: YouTubeSelectionContext? = null
     
     override fun onCreate() {
         super.onCreate()
@@ -67,11 +68,14 @@ class YouTubeAutoClickService : AccessibilityService() {
             if (event == null) return
             
             val packageName = event.packageName?.toString() ?: return
+            val eventType = event.eventType
             
-            // Only care about YouTube
-            if (packageName != YOUTUBE_MUSIC_PACKAGE && packageName != YOUTUBE_PACKAGE) {
-                // User left YouTube - reset for next time
-                if (taskCompleted) {
+            // Track if user leaves YouTube to reset state for next time
+            val isYouTube = packageName == YOUTUBE_MUSIC_PACKAGE || packageName == YOUTUBE_PACKAGE
+            
+            if (!isYouTube) {
+                // User left YouTube - reset for next time (but only if we were previously active)
+                if (taskCompleted || hasScheduledClick) {
                     Log.i(TAG, "🔄 User left YouTube, resetting state")
                     resetState()
                 }
@@ -80,22 +84,20 @@ class YouTubeAutoClickService : AccessibilityService() {
             
             eventCount++
             
-            // Log first few events for debugging
-            if (eventCount <= 3) {
-                Log.d(TAG, "📱 YouTube event #$eventCount: type=${event.eventType}, pending=${pendingSelection != null}")
+            // LOGIC: Detect if this is a NEW selection (new search query)
+            val selection = pendingSelection
+            if (selection != null && selection != lastSelection) {
+                Log.i(TAG, "🆕 New selection detected: '${selection.searchQuery}', resetting state")
+                resetState()
+                lastSelection = selection
             }
             
-            // If task completed, ignore
-            if (taskCompleted) {
+            if (selection == null) {
                 return
             }
             
-            // Need pending selection
-            val selection = pendingSelection
-            if (selection == null) {
-                if (eventCount <= 2) {
-                    Log.d(TAG, "⏸️ No pending selection, ignoring")
-                }
+            // If task is completed for the CURRENT selection, don't do anything
+            if (taskCompleted) {
                 return
             }
             
@@ -105,20 +107,26 @@ class YouTubeAutoClickService : AccessibilityService() {
                 return
             }
             
-            // Already scheduled?
+            // Trigger on significant UI changes
+            val isSignificantEvent = eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                                     eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+                                     eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
+            
+            if (!isSignificantEvent) {
+                return
+            }
+            
+            // If already scheduled, let the timer run. 
+            // Window content changes happen frequently, we don't want to restart the timer every millisecond.
             if (hasScheduledClick) {
                 return
             }
             
-            // Only react to WINDOW_STATE_CHANGED (app/activity opened)
-            if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-                return
-            }
-            
             Log.i(TAG, "╔════════════════════════════════════════════════════════╗")
-            Log.i(TAG, "║  🎯 YOUTUBE OPENED - Scheduling click                  ║")
+            Log.i(TAG, "║  🎯 YOUTUBE ACTIVE - Scheduling click                  ║")
+            Log.i(TAG, "║  Event: ${AccessibilityEvent.eventTypeToString(eventType)}")
             Log.i(TAG, "║  Query: ${selection.searchQuery.take(40)}")
-            Log.i(TAG, "║  Click in ${CLICK_DELAY_MS}ms...                                ║")
+            Log.i(TAG, "║  Wait ${CLICK_DELAY_MS}ms for UI to stabilize...                ║")
             Log.i(TAG, "╚════════════════════════════════════════════════════════╝")
             
             hasScheduledClick = true

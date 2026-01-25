@@ -32,7 +32,7 @@ class OpenRouterClient(
         private const val MODEL_FALLBACK = "xiaomi/mimo-v2-flash:free"
         
         // HTTP call timeout (shorter than OkHttp's to enable fallback)
-        private const val CALL_TIMEOUT_MS = 15_000L
+        private const val CALL_TIMEOUT_MS = 3_000L
     }
 
     // Use shared client if provided, otherwise create a new one

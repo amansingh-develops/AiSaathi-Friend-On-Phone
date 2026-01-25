@@ -404,9 +404,18 @@ class GeminiIntentInterpreter(
                 )
             } else {
                 // Legacy path: Direct client calls with manual fallback
+                // Detect language locally since SmartRouter is not available
+                val detectedLang = detectLanguageLocally(text)
+                val userPrompt = if (detectedLang != null) {
+                    Log.d(TAG, "🌐 Local language detection: $detectedLang")
+                    "🔴 DETECTED LANGUAGE: $detectedLang - YOU MUST RESPOND ENTIRELY IN $detectedLang!\n\nAnalyze this input: \"$text\""
+                } else {
+                    "Analyze this input: \"$text\""
+                }
+                
                 var result = client.generateReply(
                     systemInstruction = systemPrompt,
-                    userText = "Analyze this input: \"$text\""
+                    userText = userPrompt
                 )
                 
                 // FALLBACK TO OPENROUTER IF GEMINI FAILS
@@ -416,7 +425,7 @@ class GeminiIntentInterpreter(
                         Log.d(TAG, "OpenRouter is configured. Sending request...")
                         result = openRouterClient.generateReply(
                             systemInstruction = systemPrompt,
-                            userText = "Analyze this input: \"$text\""
+                            userText = userPrompt
                         )
                         Log.d(TAG, "OpenRouter Response: $result")
                     } else {
@@ -671,5 +680,48 @@ class GeminiIntentInterpreter(
             "LOW" -> 0.4f
             else -> 0.65f // MEDIUM or unknown
         }
+    }
+    
+    /**
+     * Local language detection using vocabulary patterns.
+     * Used when SmartModelRouter is not available.
+     */
+    private fun detectLanguageLocally(text: String): String? {
+        val lowerText = text.lowercase()
+        val words = lowerText.split(Regex("[\\s,\\.!?]+"))
+        
+        // Bhojpuri
+        val bhojpuri = listOf("hum", "ba", "rahal", "tohar", "kaisan", "karhal", "baram", "kara", "tara", "hamaar", "rahe", "kare", "jaaib", "aaib", "khai", "sunaa", "karal", "koral", "hamra", "tohaar", "tohra")
+        if (words.any { bhojpuri.contains(it) }) return "BHOJPURI"
+        
+        // Punjabi
+        val punjabi = listOf("oye", "veere", "kiven", "vadiya", "bai", "das", "karda", "reha", "paaji", "sat", "sri", "akal", "changa", "laao", "kive", "kivan", "vadya", "vadia", "kithe", "kithey")
+        if (words.any { punjabi.contains(it) }) return "PUNJABI"
+        
+        // Telugu
+        val telugu = listOf("ela", "enti", "cheppandi", "chestunnav", "bagunna", "nuvvu", "emi", "ayindi", "kavali", "pettu", "cheyyi", "vinandi", "chudandi", "elaa", "untundi", "chepu", "padu", "raandi", "vella", "emiti", "emundi", "entidi", "bagundi", "chestunar")
+        if (words.any { telugu.contains(it) }) return "TELUGU"
+        
+        // Tamil
+        val tamil = listOf("eppadi", "sollunga", "panra", "irukka", "nalla", "achu", "vaanga", "podu", "kelunga", "paaru", "ponga", "iruken", "solla", "edunga", "kodunga", "vanakkam", "iruku", "theriyum", "epdi", "epadi", "enakku", "unakku", "irukku", "pannunga")
+        if (words.any { tamil.contains(it) }) return "TAMIL"
+        
+        // Bengali
+        val bengali = listOf("kemon", "korcho", "bhalo", "achi", "tumi", "holo", "khobor", "dao", "shono", "eso", "kotha", "koro", "acho", "thako", "chai", "kemun", "kercho", "korchi", "aachhi", "jabi", "esho")
+        if (words.any { bengali.contains(it) }) return "BENGALI"
+        
+        // Marathi
+        val marathi = listOf("kay", "kasa", "aahes", "mhanta", "kartos", "challay", "sanga", "aikla", "bagha", "namaskar", "kela", "zala", "karu", "aahe", "mhanun", "kaay", "kasaa", "mhanje", "zhaala", "karto")
+        if (words.any { marathi.contains(it) }) return "MARATHI"
+        
+        // Gujarati
+        val gujarati = listOf("kem", "cho", "shu", "chale", "maja", "tame", "che", "thayo", "sambhlo", "aavo", "khabar", "avu", "karun", "kari", "joiye", "saro", "barabar", "kemcho", "kemchu", "shun", "thayun", "avjo", "samjo")
+        if (words.any { gujarati.contains(it) }) return "GUJARATI"
+        
+        // Kannada
+        val kannada = listOf("hege", "iddira", "enu", "agta", "ide", "chennag", "neevu", "hegiddira", "maadu", "keli", "noodu", "banni", "hogi", "namaskara", "aagide", "maadtini", "helri", "guru", "namma", "nimma", "heg", "maadi", "barthini", "hogona", "barri")
+        if (words.any { kannada.contains(it) }) return "KANNADA"
+        
+        return null
     }
 }

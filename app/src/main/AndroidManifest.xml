@@ -5,6 +5,9 @@
     <!-- Permissions for wake word detection -->
     <!-- Required for Porcupine activation (one-time online activation) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    
+    <!-- Overlay permission for assistant orb -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />

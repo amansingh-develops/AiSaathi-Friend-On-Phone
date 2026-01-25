@@ -32,6 +32,7 @@ import com.assistant.services.audio.SoundEffectManager
 import com.assistant.services.ack.AcknowledgementManager
 import com.assistant.services.intent.LocalHeuristicIntentInterpreter
 import com.assistant.services.listening.ListeningSessionManager
+import com.assistant.services.overlay.AssistantOverlayService
 import com.assistant.services.tts.TextToSpeechManager
 import com.assistant.services.voice.AndroidTtsVoiceOutput
 import com.assistant.services.voice.VoiceOutput
@@ -220,6 +221,9 @@ class WakeWordService : Service() {
             val contactResolver = com.assistant.services.contacts.ContactResolver(this)
             val historyManager = com.assistant.services.history.ConversationHistoryManager(this)
             
+            // Create futuristic orb overlay service
+            val overlayService = AssistantOverlayService(applicationContext)
+            
             val session = ListeningSessionManager(
                 appContext = applicationContext,
                 stt = stt,
@@ -233,6 +237,7 @@ class WakeWordService : Service() {
                 acknowledgementManager = ack,
                 contactResolver = contactResolver,
                 historyManager = historyManager,
+                overlayService = overlayService,
                 onSessionEnded = {
                     // Give microphone back to wake-word detection after the session ends.
                     resumeWakeWordListeningAfterSession()

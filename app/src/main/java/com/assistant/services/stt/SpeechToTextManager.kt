@@ -127,7 +127,10 @@ class SpeechToTextManager(
                 }
 
                 override fun onRmsChanged(rmsdB: Float) {
-                    // Not used; avoid UI-level noise.
+                    // Forward RMS level to listener for audio-reactive orb visualization
+                    // RMS dB range is typically -2 to 10 dB, normalize to 0.0-1.0
+                    val normalized = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
+                    listener?.onAudioLevel(normalized)
                 }
 
                 override fun onBufferReceived(buffer: ByteArray?) {

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Premium right edge glow - vibrant gradient -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="180"
+                android:startColor="#DD00C6FF"
+                android:centerColor="#6600D4FF"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+    <item android:right="0dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="180"
+                android:startColor="#8800F260"
+                android:centerColor="#4400C6FF"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+</layer-list>

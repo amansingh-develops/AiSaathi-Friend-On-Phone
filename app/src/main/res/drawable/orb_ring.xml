@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer ring with gradient -->
+    <item>
+        <shape android:shape="ring"
+            android:innerRadius="32dp"
+            android:thickness="4dp"
+            android:useLevel="false">
+            <gradient
+                android:type="sweep"
+                android:startColor="#00C6FF"
+                android:centerColor="#9D50BB"
+                android:endColor="#00F260" />
+        </shape>
+    </item>
+</layer-list>

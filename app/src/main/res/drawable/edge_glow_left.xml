@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Premium left edge glow - vibrant gradient -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="0"
+                android:startColor="#DD00C6FF"
+                android:centerColor="#6600D4FF"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+    <item android:left="0dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="0"
+                android:startColor="#88FF00FF"
+                android:centerColor="#4400C6FF"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+</layer-list>

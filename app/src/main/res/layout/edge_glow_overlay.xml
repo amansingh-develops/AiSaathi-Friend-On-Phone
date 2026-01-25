@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Premium edge glow overlay - Apple Intelligence / Copilot Vision style -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/edgeGlowRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/transparent">
+
+    <!-- Top edge glow - Thick, vibrant -->
+    <View
+        android:id="@+id/edgeGlowTop"
+        android:layout_width="match_parent"
+        android:layout_height="80dp"
+        android:layout_gravity="top"
+        android:layout_marginTop="0dp"
+        android:background="@drawable/edge_glow_top" />
+
+    <!-- Bottom edge glow - Thicker for nav bar area -->
+    <View
+        android:id="@+id/edgeGlowBottom"
+        android:layout_width="match_parent"
+        android:layout_height="100dp"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="0dp"
+        android:background="@drawable/edge_glow_bottom" />
+
+    <!-- Left edge glow -->
+    <View
+        android:id="@+id/edgeGlowLeft"
+        android:layout_width="50dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:layout_marginStart="0dp"
+        android:background="@drawable/edge_glow_left" />
+
+    <!-- Right edge glow -->
+    <View
+        android:id="@+id/edgeGlowRight"
+        android:layout_width="50dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:layout_marginEnd="0dp"
+        android:background="@drawable/edge_glow_right" />
+
+    <!-- Corner glow accents for premium look -->
+    <!-- Top-Left corner -->
+    <View
+        android:id="@+id/cornerTopLeft"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_gravity="top|start"
+        android:background="@drawable/corner_glow" />
+
+    <!-- Top-Right corner -->
+    <View
+        android:id="@+id/cornerTopRight"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_gravity="top|end"
+        android:scaleX="-1"
+        android:background="@drawable/corner_glow" />
+
+    <!-- Bottom-Left corner -->
+    <View
+        android:id="@+id/cornerBottomLeft"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_gravity="bottom|start"
+        android:scaleY="-1"
+        android:background="@drawable/corner_glow" />
+
+    <!-- Bottom-Right corner -->
+    <View
+        android:id="@+id/cornerBottomRight"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_gravity="bottom|end"
+        android:scaleX="-1"
+        android:scaleY="-1"
+        android:background="@drawable/corner_glow" />
+
+</FrameLayout>

@@ -15,6 +15,9 @@ interface SpeechToTextEngine {
         fun onFinalText(text: String)
         fun onError(code: Int)
         fun onEndOfSpeech()
+        
+        /** Optional: Called during recording with current audio RMS level (0.0 to 1.0). */
+        fun onAudioLevel(level: Float) {}
     }
 
     fun setListener(listener: Listener?)

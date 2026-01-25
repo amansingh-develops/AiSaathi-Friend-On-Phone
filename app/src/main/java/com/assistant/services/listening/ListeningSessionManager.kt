@@ -19,6 +19,7 @@ import com.assistant.services.intent.AssistantIntent
 import com.assistant.services.intent.IntentDecision
 import com.assistant.services.intent.IntentInterpreter
 import com.assistant.services.listening.BargeInDetector
+import com.assistant.services.overlay.AssistantOverlayService
 import com.assistant.services.router.GeminiRouter
 import com.assistant.services.voice.SpeechToTextEngine
 import com.assistant.services.voice.VoiceOutput
@@ -59,6 +60,7 @@ class ListeningSessionManager(
     private val acknowledgementManager: AcknowledgementManager,
     private val contactResolver: ContactResolver,
     private val historyManager: ConversationHistoryManager,
+    private val overlayService: AssistantOverlayService? = null,
     private val onSessionEnded: (() -> Unit)? = null
 ) : SpeechToTextEngine.Listener, VoiceOutput.Listener {
 
@@ -1457,8 +1459,26 @@ class ListeningSessionManager(
     // --- HELPERS ---
 
     private fun transitionTo(newState: AssistantState) {
+        val previousState = state
         state = newState
-        Log.d(TAG, "State: $newState")
+        Log.d(TAG, "State: $previousState -> $newState")
+        
+        // Sync overlay state
+        when (newState) {
+            AssistantState.IDLE -> overlayService?.hide()
+            AssistantState.ACTIVE_LISTENING -> {
+                // Show overlay on first ACTIVE_LISTENING transition (wake)
+                if (previousState == AssistantState.IDLE) {
+                    overlayService?.show(newState)
+                } else {
+                    overlayService?.updateState(newState)
+                }
+            }
+            AssistantState.WAITING -> overlayService?.updateState(newState)
+            AssistantState.UNDERSTANDING -> overlayService?.updateState(newState)
+            AssistantState.SPEAKING,
+            AssistantState.EXECUTION -> overlayService?.updateState(newState)
+        }
     }
 
     private fun resetSilenceTimer() {
@@ -1532,6 +1552,11 @@ class ListeningSessionManager(
     // Unused overrides
     override fun onReady() {}
     override fun onEndOfSpeech() {} // Vosk timeout
+    
+    // Audio level callback for orb visualization
+    override fun onAudioLevel(level: Float) {
+        overlayService?.onAudioLevel(level)
+    }
     override fun onError(code: Int) {
         if (!sessionActive.get()) return
         
